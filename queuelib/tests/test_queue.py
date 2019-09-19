@@ -108,6 +108,9 @@ class LifoTestMixin(BaseQueueTest):
 
 class PersistentTestMixin(object):
 
+    def corrupt_persisted_data(self):
+        raise NotImplementedError
+
     chunksize = 100000
 
     @pytest.mark.xfail(reason="Reenable once Scrapy.squeues stop"
@@ -165,6 +168,21 @@ class PersistentTestMixin(object):
         q.close()
         assert not os.path.exists(self.qpath)
 
+    def test_corruption_recovery(self):
+        """Test that the queue can recover from corrupted data (partial writes)
+        """
+        q = self.queue()
+        values = [b'0', b'1']
+        for x in values:
+            q.push(x)
+        q.close()
+        self.corrupt_persisted_data()
+        q = self.queue()
+        assert len(q) >= 1
+        while q:
+            assert q.pop() in values
+        q.close()
+
 
 class FifoMemoryQueueTest(FifoTestMixin, QueuelibTestCase):
 
@@ -219,6 +237,12 @@ class LifoDiskQueueTest(LifoTestMixin, PersistentTestMixin, QueuelibTestCase):
 
     def queue(self):
         return LifoDiskQueue(self.qpath)
+
+    def corrupt_persisted_data(self):
+        with open(self.qpath, 'rb') as queue_file:
+            data = queue_file.read()
+        with open(self.qpath, 'wb') as queue_file:
+            queue_file.write(data[:-1])
 
     def test_file_size_shrinks(self):
         """Test size of queue file shrinks when popping items"""
